@@ -1,0 +1,8 @@
+__pycache__/
+.DS_Store
+data/panel/
+data/rerun_logs/
+data/outputs/*
+!data/outputs/p20_fig_hypotheses.tex
+data/raw/cboe_vix_history.csv
+data/raw/oos2026/fred_VIXCLS*
