@@ -1,15 +1,5 @@
 # Replication
 
-Every result comes from one pipeline (Table 11 of the paper), and all listed paths are relative to the `data` folder. `silo1_core.py` contains the implementation of the sample, the estimator, and every hypothesis test; every pipeline stage imports it. `run_pipeline.py` runs the stages in order. Every bootstrap test draws from its own random stream. The 2026 out-of-sample downloads are pinned to the retrieval date of 8 November 2026, and the World Economic Outlook snapshot dates from 16 October 2026.
-
-The estimation panel comes from `build_panel.py`, which reads the files in `raw/`. Each series takes, year by year, the first source in the economy's list that has a value. The default sources include the IMF's end-of-December exchange rate and December consumer price inflation (IMF International Financial Statistics), the end-of-December central bank policy rate (BIS central bank policy rates), and the October 2026 World Economic Outlook (IMF World Economic Outlook, October 2026). 
-
-Most fallbacks cover an economy or a year that the default source lacks. For instance, Japan and Indonesia lack a policy rate in some years, so those years take the overnight call rate (FRED). The Euro Area's inflation is the official euro-area index (Eurostat HICP). We also note that the Euro Area's World Economic Outlook series are the euro-area aggregate. The October 2026 database omits Korea's gross debt and primary balance before 2012, so those years come from the April 2026 version. 
-
-The script also estimates the Markov-switching model for the stress probability, and it replaces the federal funds rate with the Wu-Xia shadow rate in 2009-2015, 2020, and 2021, as these are the years in which the zero lower bound held for most of the year.
-
-Replication map. Outputs are written to the file in the last column (under `outputs/` unless specified otherwise). `build_panel.py`, `fetch_bis_turnover.py`, and the Figure 1 source are run by hand before it.
-
 | Script (under `data/`) | Results | Output |
 |---|---|---|
 | `build_panel.py` | The estimation panel from the files in `raw/` | `panel/panel21.csv` |
@@ -57,8 +47,6 @@ Python 3 with numpy, pandas, scipy, statsmodels, matplotlib, seaborn, and openpy
 The last four columns are global and identical across economies.
 
 ## Sources
-
-A date in a file name is its retrieval date.
 
 | File in `data/raw/` | Source |
 |---|---|
