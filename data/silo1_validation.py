@@ -2,7 +2,7 @@ import os
 
 import silo1_core as core
 
-REPS = int(os.environ.get("SILO1_REPS", 500))     # simulated panels per row (override only for smoke runs)
+REPS = int(os.environ.get("SILO1_REPS", 500))     # panels per row
 B_INNER, MULTIPLES = 999, (0.0, 0.5, 1.0, 1.5, 2.0)
 
 d = core.load()
@@ -15,8 +15,7 @@ for row, k in zip(sim["rows"], MULTIPLES):
     print(f"shift {k:.1f}x: bootstrap rejects {row['reject_10']:.3f} (10%) {row['reject_05']:.3f} (5%); "
           f"textbook {row['textbook_reject_10']:.3f}", flush=True)
 out["simulation"] = sim
-# the same simulation with the residuals' common year component (robustness.json), which the
-# wild-cluster bootstrap by economy does not reproduce
+# same simulation with common year shocks
 share = core.read("robustness.json")["residual_comovement"]["year_share"]
 simc = core.simulate_threshold_test(d, [k * theta0 for k in MULTIPLES], REPS, B_INNER, core.stream("simulation common shocks"),
                                     year_share=share)

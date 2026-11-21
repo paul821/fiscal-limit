@@ -29,14 +29,14 @@ CODE = {"Australia": "AUS", "Brazil": "BRA", "Canada": "CAN", "Czechia": "CZE", 
         "South Africa": "ZAF", "Sweden": "SWE", "Switzerland": "CHE", "Thailand": "THA", "UK": "GBR"}
 
 
+# fit as coefficient Series and covariance
 def fit(frame, xc, y="delta_E"):
-    """core.fit, returned as coefficient Series and covariance DataFrame for plotting."""
     r = core.fit(frame, y, xc)
     return pd.Series(r["beta"], xc), pd.DataFrame(r["V"], xc, xc)
 
 
+# slope line with a 95% band
 def line(ax, slope, var, x0=0, x1=150, **kw):
-    """Draw slope*D from x0 to x1 percent of GDP, with a 95 percent band."""
     x = np.array([x0, x1], float); col = kw.get("color", CALM)
     ax.plot(x, slope * x / 100, **kw)
     if var is not None:
@@ -44,9 +44,8 @@ def line(ax, slope, var, x0=0, x1=150, **kw):
         ax.fill_between(x, slope * x / 100 - hw, slope * x / 100 + hw, color=col, alpha=.14, lw=0)
 
 
+# kink line with a 95% band
 def kink(ax, b0, bN, V, gamma, x1, **kw):
-    """Draw b0*D + bN*(D - gamma)*1{D > gamma} from 0 to x1 percent of GDP, with a 95 percent band
-    from the covariance V of (b0, bN) when V is given."""
     x = np.union1d(np.linspace(0, x1, 301), [gamma * 100]); x = x[x <= x1]
     D = x / 100; H = np.clip(D - gamma, 0, None); y = b0 * D + bN * H
     ax.plot(x, y, **kw)
@@ -55,8 +54,8 @@ def kink(ax, b0, bN, V, gamma, x1, **kw):
         ax.fill_between(x, y - hw, y + hw, color=kw.get("color", CALM), alpha=.14, lw=0)
 
 
+# kinked fit at a break
 def piece(ax, fr, gamma, top, **kw):
-    """Kinked fit at a given break, refit here so the band and the slopes agree."""
     b, V = fit(fr.assign(Dhi=(fr.D - gamma) * (fr.D > gamma)), ["D", "Dhi"] + CONTROLS)
     kink(ax, b["D"], b["Dhi"], V.loc[["D", "Dhi"], ["D", "Dhi"]].to_numpy(), gamma, top, **kw)
     return b["D"], b["D"] + b["Dhi"]
@@ -73,8 +72,8 @@ def save(fig, name):
     plt.close(fig)
 
 
+# legend under the plot
 def legend_below(fig, handles, labels, bottom=.11, **tight):
-    """Series names sit in one frameless row under the plot area."""
     fig.legend(handles, labels, loc="lower center", ncol=len(handles), frameon=False, fontsize=7,
                handlelength=2.6, columnspacing=1.5)
     fig.tight_layout(rect=(0, bottom, 1, 1), **tight)
@@ -91,7 +90,7 @@ def close(a, b, what):
     assert abs(a - b) < 1e-3, (what, a, b)
 
 
-# ---------------------------------------------------------------- EDA: across economies
+# EDA: across economies
 g = d.groupby("country").agg(debt=("debt_gdp", "mean"), dep=("delta_E", "mean")).reset_index()
 fig, ax = plt.subplots(figsize=(5.2, 3.4))
 ax.axhline(0, color=GRAY, lw=0.6)
@@ -110,7 +109,7 @@ ax.set_xlim(0, 200)
 legend_below(fig, ax.get_legend_handles_labels()[0], ax.get_legend_handles_labels()[1])
 save(fig, "eda_cross")
 
-# ---------------------------------------------------------------- EDA: within economies
+# EDA: within economies
 fig, ax = plt.subplots(figsize=(5.6, 3.4))
 for y in DES["within"]["stress_years"]:
     ax.axvspan(y - .5, y + .5, color=BAND, lw=0)
@@ -129,7 +128,7 @@ legend_below(fig, [Line2D([], [], color=INK, lw=1.5), Line2D([], [], color=CALM,
              ["Japan", "United Kingdom", "Other economies", "Estimated threshold", "Stressed years"])
 save(fig, "eda_paths")
 
-# ---------------------------------------------------------------- four tests as estimated shapes
+# four tests as estimated shapes
 base = EST["H1"]["coef"]; thr = EST["H2"]; PR = EST["H4"]
 g2 = thr["gamma"]; t0, tN, gC, gS = PR["theta0"], PR["thetaN"], PR["gamma_calm"], PR["gamma_stress"]
 b1, V1 = fit(d, ["D"] + CONTROLS); close(b1["D"], base, "H1")
@@ -138,7 +137,7 @@ fig, axs = plt.subplots(1, 4, figsize=(6.6, 2.5), sharey=True)
 for a, t in zip(axs, ("H1: Linear", "H2: Threshold", "H3: Salience", "H4: Moving limit")):
     shape_axes(a, a is axs[0], 26, -3); a.set_title(t)
 line(axs[0], base, V1.loc["D", "D"], color=CALM)
-s1 = .12; s0 = s1 / 2.5   # sketch, drawn to no estimate: slopes in points per pp, ratio as in Figure 1
+s1 = .12; s0 = s1 / 2.5   # sketch, not an estimate
 axs[1].plot([0, g2 * 100, 150], [0, s0 * g2 * 100, s0 * g2 * 100 + s1 * (150 - g2 * 100)], color=GRAY, ls=DASH, lw=.9)
 lo, hi = piece(axs[1], d, g2, 150, color=CALM); close(lo, thr["slope_below"], "below"); close(hi, thr["slope_above"], "above")
 axs[1].axvline(g2 * 100, color=INK, ls=":", lw=.7)
@@ -154,7 +153,7 @@ legend_below(fig, [Line2D([], [], color=CALM, lw=1.5), Line2D([], [], color=STRE
              ["All or calm years", "Stressed years", "Shape the hypothesis predicts", "Estimated threshold"], bottom=.14, w_pad=.5)
 save(fig, "shapes")
 
-# ---------------------------------------------------------------- H1: Japan 2001
+# H1: Japan 2001
 jp = d[d.country == "Japan"]
 inf = ROB["influence"][0]; assert (inf["country"], inf["year"]) == ("Japan", 2001), inf   # panel (b) labels it
 j_drop = ROB["slope_without_each_economy"]["Japan"]
@@ -176,7 +175,7 @@ b.legend(loc="upper left", frameon=False, fontsize=6.8)
 fig.tight_layout()
 save(fig, "h1_japan")
 
-# ---------------------------------------------------------------- H2: groups
+# H2: groups
 comp = ROB["groups"]
 groups = [(f"{t} ({len(m)})", k, set(m)) for t, k, m in
           [("IMF advanced", "imf_advanced", core.IMF_ADV), ("IMF emerging", "imf_emerging", core.IMF_EME)]]
@@ -192,7 +191,7 @@ legend_below(fig, [Line2D([], [], color=CALM, lw=1.5), Line2D([], [], color=GRAY
              ["Threshold fit", "Linear fit", "Estimated threshold"], bottom=.13, w_pad=.5)
 save(fig, "h2_groups")
 
-# ---------------------------------------------------------------- H3: stress measures
+# H3: stress measures
 def around_mean(cond):
     f = d.dropna(subset=[cond]).copy(); z = (f[cond] - f[cond].mean()) / f[cond].std()
     f = f.assign(**{cond + "_z": z, "Dc": f.D * z})
@@ -212,7 +211,7 @@ legend_below(fig, [Line2D([], [], color=CALM, lw=1.5), Line2D([], [], color=STRE
              ["Calm or low uncertainty", "Stressed or high uncertainty"], bottom=.13, w_pad=.6)
 save(fig, "h3_measures")
 
-# ---------------------------------------------------------------- H4: timeline, one plot with two vertical axes
+# H4: timeline, one plot with two vertical axes
 yr_pi = df.groupby("year").pi.first(); yr_debt = d.groupby("year").debt_gdp_lag.mean()
 yr_pi = yr_pi[yr_pi.index.isin(yr_debt.index)]
 fig, ax = plt.subplots(figsize=(5.4, 3.3))
@@ -228,7 +227,7 @@ legend_below(fig, [Line2D([], [], color=INK, lw=1.7, marker="o", ms=2.6), Patch(
              ["Mean lagged debt (left axis)", r"$\hat{\pi}_t>0.5$ (right axis)", r"$\hat{\pi}_t\leq 0.5$ (right axis)"])
 save(fig, "h4_timeline")
 
-# ---------------------------------------------------------------- Japan: H3
+# Japan: H3
 fig, axs = plt.subplots(1, 2, figsize=(5.0, 2.7), sharey=True)
 for a, t, sample, h in ((axs[0], f"All {d.country.nunique()} economies", d, EST["H3"]),
                         (axs[1], "Without Japan", nojp, ROB["samples"]["no_japan"]["H3"])):
@@ -239,7 +238,7 @@ for a, t, sample, h in ((axs[0], f"All {d.country.nunique()} economies", d, EST[
 legend_below(fig, [Line2D([], [], color=CALM, lw=1.5), Line2D([], [], color=STRESS, ls=DASH, lw=1.5)], ["Calm years", "Stressed years"], bottom=.12)
 save(fig, "japan_h3")
 
-# ---------------------------------------------------------------- 2026: the won
+# 2026: the won
 e = pd.read_csv(os.path.join(HERE, "raw", "oos2026", f"ecb_exr.csv_{OOS['vintage']}"))
 fx = e.pivot(index="TIME_PERIOD", columns="CURRENCY", values="OBS_VALUE"); fx.index = pd.to_datetime(fx.index)
 krw = (fx["KRW"] / fx["USD"]).dropna(); krw = krw[(krw.index >= "2025-01-01") & (krw.index <= OOS["cutoff"])]
@@ -257,7 +256,7 @@ ax.set_xticklabels(["Jan 2025", "Jul 2025", "Jan 2026", "Jul 2026"])
 h, l = ax.get_legend_handles_labels(); legend_below(fig, h, l)
 save(fig, "oos_won")
 
-# ---------------------------------------------------------------- 2026: every currency in the check
+# 2026: every currency in the check
 fig, ax = plt.subplots(figsize=(3.5, 3.6))
 ax.axhline(0, color=GRAY, lw=.6); ax.axvline(0, color=GRAY, lw=.6)
 ax.plot([-14, 14], [-14, 14], color=GRAY, ls=DASH, lw=.9)

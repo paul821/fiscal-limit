@@ -9,7 +9,7 @@ C = core.CONTROLS
 d = core.load()
 out = {}
 
-# influence: the observation whose removal moves the linear slope most
+# most influential observation
 lin = core.fit(d, "delta_E", ["D"] + C)
 b_full = lin["b"]["D"]
 chg = np.array([core.fit(d.drop(i), "delta_E", ["D"] + C)["b"]["D"] - b_full for i in range(len(d))])
@@ -55,18 +55,16 @@ sp = pd.read_csv(os.path.join(core.SRC, "areaer_non_floating_spells.csv"))
 mask = np.zeros(len(d), bool)
 for _, r in sp.iterrows():
     mask |= ((d.country == r.country) & d.year.between(r.first_year, r.last_year)).to_numpy()
-# the four tests without the economy-years the IMF classifies as non-floating
+# four tests, floating years only
 fl = d[~mask].reset_index(drop=True)
 out["floating_sample"] = four_tests(fl, "floating")
 out["floating_years"] = dict(out["floating_sample"]["H1"], dropped=int(mask.sum()))
-# whether the linear slope differs between the IMF advanced and emerging groups (two-sided)
+# advanced vs emerging slope
 fa = d.assign(DA=d.D * d.country.isin(core.IMF_ADV))
 mg = core.fit(fa, "delta_E", ["D", "DA"] + C)
 out["group_slope"] = dict(core.wild_test(fa, "delta_E", ["D", "DA"] + C, "DA", rng=core.stream("group slope")),
                           slope_emerging=float(mg["b"]["D"]), slope_advanced=float(mg["b"]["D"] + mg["b"]["DA"]))
-# H2 fit at every observed debt ratio between the 1st and 99th percentiles, beyond the trimmed grid
-# (Section 6, Step 3): the fall in SSE against the linear model at the best candidate overall,
-# below the grid, and within the grid's range
+# H2 at every debt ratio, 1st to 99th percentile
 Dv = d.D.to_numpy(float)
 cand = np.unique(Dv[(Dv >= np.quantile(Dv, .01)) & (Dv <= np.quantile(Dv, .99))])
 gain = float((lin["u"] ** 2).sum()) - core.ThresholdDesign(d, C, [np.full(len(d), g) for g in cand]).rss(core._outcome(d))[:, 0]
@@ -82,8 +80,7 @@ def _best(mask):
 
 out["h2_full_scan"] = dict(overall=_best(cand > 0), below_grid=_best(cand < G.min()),
                            within_grid=_best((cand >= G.min()) & (cand <= G.max())))
-# H3 with Japan kept and one stressed-year intercept shared by the two safe havens of Ranaldo and
-# Soderlind (2010), so the franc, a haven at ordinary debt, measures how much a haven strengthens in stress
+# H3 with a shared safe-haven stress intercept
 hv = d.country.isin(["Japan", "Switzerland"]).astype(float)
 fh = d.assign(DHS=d.D * d.HS, HavHS=hv * d.HS, Dpi=d.D * d.pi, Havpi=hv * d.pi)
 out["h3_haven"] = {}
@@ -97,9 +94,8 @@ for form, xs, term, haven in (("binary", ["D", "DHS", "HS", "HavHS"], "DHS", "Ha
     print(f"H3 haven {form:10s} shift {m['b'][term]:.3f}  p one-sided {out['h3_haven'][form]['p_wild_upper']:.4f}", flush=True)
 
 
+# economy shares of the variation in D*HS
 def _dhs_shares(extra):
-    """Each economy's share of the variation in D*HS left after the fixed effects, D, HS, the
-    controls, and `extra`: the variation from which the binary H3 shift is estimated."""
     c, ng = core.codes(fh)
     Z = core.demean(fh[["D", "HS"] + extra + C].to_numpy(float), c, ng)
     x = core.demean(fh[["DHS"]].to_numpy(float), c, ng)[:, 0]
@@ -110,8 +106,7 @@ def _dhs_shares(extra):
 
 out["h3_leverage"] = dict(baseline=_dhs_shares([]), with_haven=_dhs_shares(["HavHS"]))
 
-# The tests with year fixed effects, which absorb every shock common to all economies in a year,
-# in place of the measured global regressors (shadow rate, VIX) and the stress level they would duplicate
+# four tests with year fixed effects
 yrs = sorted(d.year.unique())
 YD = [f"y{y}" for y in yrs[1:]]
 glob = [c for c in C if d.groupby("year")[c].nunique().max() == 1]
@@ -129,10 +124,10 @@ out["year_fe"] = dict(
     H4=core.moving_limit_test(fy, cy, rng=core.stream("year fe H4")))
 print("year fe", {k: round(v["p"] if "p" in v else v.get("p_wild_upper", v.get("split", {}).get("p_wild_upper", -1)), 4)
                   for k, v in out["year_fe"].items() if isinstance(v, dict)}, flush=True)
-# Advanced economies' share of the economy-years above and below the full-panel threshold (Section 7.4)
+# advanced share around the threshold
 g2 = core.read("estimates.json")["H2"]["gamma"]; adv = d.country.isin(core.IMF_ADV)
 out["advanced_share_at_threshold"] = dict(gamma=g2, above=float(adv[d.D > g2].mean()), below=float(adv[d.D <= g2].mean()))
-# Comovement of the linear model's residuals across economies, which the size simulation leaves out (Section 7.2)
+# residual comovement
 res = pd.DataFrame(dict(country=d.country.to_numpy(), year=d.year.to_numpy(), u=lin["u"]))
 cm = res.pivot(index="year", columns="country", values="u").corr(min_periods=10).to_numpy()
 out["residual_comovement"] = dict(year_share=float((res.groupby("year").u.transform("mean") ** 2).sum() / (res.u ** 2).sum()),
@@ -140,7 +135,7 @@ out["residual_comovement"] = dict(year_share=float((res.groupby("year").u.transf
 out["slope_without_each_economy"] = {c: float(core.fit(d[d.country != c], "delta_E", ["D"] + C)["b"]["D"])
                                      for c in sorted(d.country.unique())}
 
-# H3 with text-based uncertainty indices (one standard deviation below and above average)
+# H3 with text-based indices
 out["text_measures"] = {}
 for cond in ("gepu", "wui"):
     f = d.dropna(subset=[cond]).copy()
@@ -151,9 +146,7 @@ for cond in ("gepu", "wui"):
     m = core.fit(f, "delta_E", xs)
     out["text_measures"][cond] = dict(r, slope_low=float(m["b"]["D"] - m["b"]["Dc"]), slope_high=float(m["b"]["D"] + m["b"]["Dc"]))
 
-# The same World Uncertainty Index test in the other samples of Table 6: without Japan's 2001
-# economy-year, without Japan, and with Japan kept and the two havens' own response to the index
-# (Haven x WUI), the counterpart of the shared stressed-year intercept. WUI is standardized within each sample.
+# WUI test in the other Table 6 samples
 out["wui_samples"] = {}
 for tag, frame, haven in (("no_influential", samples["no_influential"], False), ("no_japan", samples["no_japan"], False),
                           ("floating", fl, False), ("safe_havens", d, True)):

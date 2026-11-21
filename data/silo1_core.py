@@ -9,14 +9,14 @@ from scipy import stats
 HERE = os.path.dirname(os.path.abspath(__file__))
 OUT = os.path.join(HERE, "outputs")
 SRC = os.path.join(HERE, "raw")
-PANEL = os.path.join(HERE, "panel", "panel21.csv")   # 21 economies, 2001-2025, built by build_panel.py
+PANEL = os.path.join(HERE, "panel", "panel21.csv")   # built by build_panel.py
 
 CONTROLS = ["i", "vix", "rate_spread", "gdp_growth", "ca_gdp", "infl_diff", "wui",
             "prim_bal_lag", "delta_debt_pos_lag", "delta_debt_neg_lag", "prim_bal_streak_lag"]
 USED = ["delta_E", "D", "pi", "HS", "country", "year"] + CONTROLS
-STRESS_CUT = 0.5                    # stressed year: pi_hat > 0.5
-GRID = (.15, .85, 25)               # threshold candidates: 25 quantiles, middle 70 percent of debt
-B = int(os.environ.get("SILO1_B", 9999))   # replications for every reported bootstrap test (override only for smoke runs)
+STRESS_CUT = 0.5                    # stressed year
+GRID = (.15, .85, 25)               # 25 quantiles, 15th to 85th percentile
+B = int(os.environ.get("SILO1_B", 9999))   # bootstrap replications
 BASE_SEED = 20261110
 
 IMF_ADV = ["Australia", "Canada", "Czechia", "Euro Area", "Israel", "Japan", "Korea",
@@ -24,14 +24,13 @@ IMF_ADV = ["Australia", "Canada", "Czechia", "Euro Area", "Israel", "Japan", "Ko
 IMF_EME = ["Brazil", "Hungary", "India", "Indonesia", "Mexico", "Poland", "Russia", "South Africa", "Thailand"]
 
 
-# ------------------------------------------------------------------ sample and randomness
+# seeded generator per test name
 def stream(name):
-    """Independent random generator for one named test."""
     return np.random.default_rng([BASE_SEED, zlib.crc32(name.encode())])
 
 
+# panel with model names
 def load_raw():
-    """Every economy-year in the panel file, with the model's variable names."""
     df = pd.read_csv(PANEL)
     df["D"] = df["debt_gdp_lag"] / 100.0
     df["i"] = df["shadow_rate"]
@@ -40,13 +39,13 @@ def load_raw():
     return df
 
 
+# estimation sample
 def load():
-    """The estimation sample: economy-years with every regressor, sorted by economy and year."""
     return load_raw().dropna(subset=USED).sort_values(["country", "year"]).reset_index(drop=True)
 
 
+# controls that vary in the sample
 def controls_in(frame):
-    """Controls that vary inside a subsample (a constant column is absorbed by the fixed effects)."""
     return [c for c in CONTROLS if frame[c].std() > 1e-9]
 
 
@@ -60,7 +59,7 @@ def read(name):
     return json.load(open(os.path.join(OUT, name)))
 
 
-# ------------------------------------------------------------------ within estimator
+# within estimator
 def codes(frame):
     c, _ = pd.factorize(frame["country"].values)
     return c, int(c.max() + 1)
@@ -72,8 +71,8 @@ def demean(mat, c, ng):
     return mat - (sums / np.bincount(c, minlength=ng).astype(float)[:, None])[c]
 
 
+# CR1 small-sample factor
 def cr1(n, k, ng):
-    """Small-sample factor of the CR1 cluster-robust covariance."""
     return (ng / (ng - 1)) * ((n - 1) / (n - k))
 
 
@@ -85,8 +84,8 @@ def cluster_vcov(X, u, XtXi, c, ng):
     return cr1(len(u), X.shape[1], ng) * (XtXi @ meat @ XtXi)
 
 
+# within OLS with economy effects
 def fit(frame, y, xcols):
-    """Within least squares of y on xcols with economy fixed effects."""
     c, ng = codes(frame)
     dm = demean(frame[[y] + xcols].to_numpy(float), c, ng)
     Y, X = dm[:, 0], dm[:, 1:]
@@ -104,7 +103,7 @@ def fit(frame, y, xcols):
                 codes=c, ng=ng, n=len(Y))
 
 
-# ------------------------------------------------------------------ bootstrap primitives
+# bootstrap primitives
 def _chunks(total, size=1000):
     done = 0
     while done < total:
@@ -118,21 +117,16 @@ def _indicator(c, ng):
     return M
 
 
+# draws at least as extreme; exact ties count
 def _at_least(stat, obs, tol=1e-9):
-    """Bootstrap draws at least as extreme as the observed statistic. With few economies, sign
-    patterns repeat and some draws reproduce the observed statistic exactly; the tolerance counts
-    those ties as ties instead of letting the last bits of floating point decide them."""
     return stat >= obs - tol * abs(obs)
 
 
 WEBB = np.array([-np.sqrt(1.5), -1.0, -np.sqrt(0.5), np.sqrt(0.5), 1.0, np.sqrt(1.5)])
 
 
+# null draws: Rademacher, or Webb six-point when 2^G < B
 def _null_draws(fitted, u0, c, ng, R, rng):
-    """R wild-cluster outcomes under the null: one weight per economy and draw. Rademacher signs
-    (+1 or -1, the usual choice) allow only 2^G distinct draws for G economies. When that is fewer
-    than the B replications, as in the IMF groups, draws repeat, so the weights come from Webb's
-    (2013) six-point distribution instead."""
     if 2 ** ng >= B:
         W = np.where(rng.random((R, ng)) < 0.5, 1.0, -1.0)
     else:
@@ -140,14 +134,14 @@ def _null_draws(fitted, u0, c, ng, R, rng):
     return fitted[:, None] + u0[:, None] * W.T[c]
 
 
+# wild-cluster bootstrap-t, null imposed
 def wild_test(frame, y, xfull, term, B=B, rng=None):
-    """Wild-cluster bootstrap-t for one coefficient, imposing coef = 0 (restricted residuals)."""
     full = fit(frame, y, xfull)
     j = full["xcols"].index(term)
     tobs = full["t"][term]
     r0 = fit(frame, y, [x for x in xfull if x != term])
     X, XtXi, c, ng = full["X"], full["XtXi"], full["codes"], full["ng"]
-    a = X @ XtXi[:, j]                                   # each observation's weight in coef j
+    a = X @ XtXi[:, j]                                   # observation weights in coef j
     M, k = _indicator(c, ng), cr1(full["n"], full["k"], ng)
     up = two = 0
     for R in _chunks(B):
@@ -162,16 +156,13 @@ def wild_test(frame, y, xfull, term, B=B, rng=None):
                 p_wild=(two + 1) / (B + 1), p_wild_upper=(up + 1) / (B + 1), B=B, n=full["n"])
 
 
-# ------------------------------------------------------------------ threshold machinery
+# threshold machinery
 def grid(frame, lo=GRID[0], hi=GRID[1], n=GRID[2]):
     return np.unique(np.round(np.quantile(frame.D, np.linspace(lo, hi, n)), 4))
 
 
+# kink design over candidate thresholds
 class ThresholdDesign:
-    """Within design [D, (D - threshold) * 1{D > threshold}, controls] for a list of candidate thresholds.
-
-    A candidate is a threshold per observation, so the same class handles one common threshold
-    (H2) and a threshold that depends on the stress state (H4)."""
 
     def __init__(self, frame, ctr, candidates):
         self.c, self.ng = codes(frame)
@@ -187,8 +178,8 @@ class ThresholdDesign:
     def X(self, m):
         return np.column_stack([self.base[:, :1], self.H[:, m], self.base[:, 1:]])
 
+    # SSE per candidate and draw
     def rss(self, Y):
-        """Residual sum of squares of every candidate for every column of Y (candidates x R)."""
         BY, HY, yy = self.base.T @ Y, self.H.T @ Y, (Y * Y).sum(0)
         out = np.empty((self.H.shape[1], Y.shape[1]))
         for m in range(self.H.shape[1]):
@@ -196,14 +187,14 @@ class ThresholdDesign:
             out[m] = yy - (XtY * (self.XtXi[m] @ XtY)).sum(0)
         return out
 
+    # least-squares candidate per draw
     def search(self, Y):
-        """Least-squares candidate for every column of Y (first minimum on ties)."""
         r = self.rss(Y)
         idx = np.argmin(r, axis=0)
         return idx, r[idx, np.arange(Y.shape[1])]
 
+    # Wald on the slope shift per draw
     def shift_wald(self, Y, idx):
-        """Cluster-robust Wald statistic on the slope shift at each column's own candidate."""
         w = np.empty(Y.shape[1]); b = np.empty((self.k, Y.shape[1]))
         for m in np.unique(idx):
             cols = idx == m
@@ -224,9 +215,8 @@ def threshold_fit(frame, gamma, ctr=CONTROLS):
     return fit(frame.assign(Dhi=(frame.D - gamma) * (frame.D > gamma)), "delta_E", ["D", "Dhi"] + ctr)
 
 
+# H2: Wald at the searched threshold
 def threshold_test(frame, ctr=CONTROLS, B=B, rng=None):
-    """H2: Wald on the slope shift at the least-squares threshold; the bootstrap imposes the linear
-    model and repeats the search in every draw, so the critical value carries the search's cost."""
     G = grid(frame)
     td = ThresholdDesign(frame, ctr, [np.full(len(frame), g) for g in G])
     Y = _outcome(frame)
@@ -254,10 +244,8 @@ def _split_candidates(frame, G):
     return pairs, [np.where(hs, gs, gc) for gc, gs in pairs]
 
 
+# H4: F for calm and stressed thresholds
 def moving_limit_test(frame, ctr=CONTROLS, B=B, rng=None):
-    """H4: F statistic for a calm and a stressed threshold against one common threshold, with the
-    slope shift common to both states. The bootstrap imposes the single-threshold fit and repeats
-    both searches in every draw."""
     G = grid(frame); n = len(frame)
     single = ThresholdDesign(frame, ctr, [np.full(n, g) for g in G])
     pairs, cands = _split_candidates(frame, G)
@@ -281,20 +269,15 @@ def moving_limit_test(frame, ctr=CONTROLS, B=B, rng=None):
                 theta0=float(r2["b"]["D"]), thetaN=float(r2["b"]["Dhi"]), B=B)
 
 
+# size and power of the threshold test
 def simulate_threshold_test(frame, shifts, reps, B_inner, rng, ctr=CONTROLS, gamma_q=0.6, year_share=0.0):
-    """Size and power of threshold_test. Each panel keeps the observed debt paths and the design,
-    adds economy effects and normal errors with the linear model's residual standard deviation, and
-    plants a slope shift above the gamma_q quantile of debt. Each panel runs the full test,
-    including the bootstrap that repeats the search. The textbook test (chi-squared critical value
-    at the searched threshold) is scored on the same panels. With year_share > 0, that share of the
-    error variance is a shock common to every economy in a year, as in the linear model's residuals."""
     G = grid(frame); n = len(frame)
     td = ThresholdDesign(frame, ctr, [np.full(n, g) for g in G])
     c, ng = td.c, td.ng
     Dv = frame.D.to_numpy(float)
     lin = fit(frame, "delta_E", ["D"] + ctr)
     XL, XLi = lin["X"], lin["XtXi"]
-    sigma = float(np.sqrt(lin["rss"] / (n - lin["k"] - ng)))   # ng economy effects are absorbed
+    sigma = float(np.sqrt(lin["rss"] / (n - lin["k"] - ng)))   # economy effects absorbed
     gtrue = float(np.quantile(Dv, gamma_q))
     yr = np.unique(frame.year.to_numpy(), return_inverse=True)[1]
     chi10 = stats.chi2.ppf(.90, 1)
@@ -321,10 +304,8 @@ def simulate_threshold_test(frame, shifts, reps, B_inner, rng, ctr=CONTROLS, gam
     return out
 
 
-# ------------------------------------------------------------------ standard errors
+# Driscoll-Kraay standard error
 def driscoll_kraay(frame, y, xcols, term):
-    """Driscoll-Kraay standard error: scores summed across economies within a year, then a Bartlett
-    kernel over years with the Newey-West (1994) lag rule floor(4 (T/100)^(2/9))."""
     r = fit(frame, y, xcols)
     h = r["X"] * r["u"][:, None]
     years = np.sort(frame.year.unique())

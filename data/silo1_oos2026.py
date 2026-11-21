@@ -3,10 +3,10 @@ import numpy as np, pandas as pd
 import silo1_core as core
 
 CACHE = os.path.join(core.HERE, "raw", "oos2026")
-VINTAGE = os.environ.get("SILO1_VINTAGE", "2026-11-08")   # retrieval date of every 2026 download
-CUTOFF = "2026-10-31"                 # every 2026 input and outcome stops here
+VINTAGE = os.environ.get("SILO1_VINTAGE", "2026-11-08")   # download date
+CUTOFF = "2026-10-31"                 # cutoff
 
-# economy: (currency, BIS policy-rate area, IMF and FRED country code)
+# currency, BIS area, IMF and FRED codes
 CODES = {"Australia": ("AUD", "AU", "AUS"), "Brazil": ("BRL", "BR", "BRA"), "Canada": ("CAD", "CA", "CAN"),
          "Czechia": ("CZK", "CZ", "CZE"), "Euro Area": ("EUR", "XM", "EURO"), "Hungary": ("HUF", "HU", "HUN"),
          "India": ("INR", "IN", "IND"), "Indonesia": ("IDR", "ID", "IDN"), "Israel": ("ILS", "IL", "ISR"),
@@ -19,8 +19,8 @@ EA = ["AUT", "BEL", "FIN", "FRA", "DEU", "IRL", "ITA", "NLD", "PRT", "ESP", "GRC
 WEO_INDS = ["GGXWDG_NGDP", "NGDP_RPCH", "BCA_NGDPD", "GGXONLB_G01_GDP_PT"]   # debt, growth, current account, primary balance
 
 
+# cached download for the pinned vintage
 def fetch(url, name):
-    """Return the cached download for the pinned vintage; download only when refreshing to today."""
     path = os.path.join(CACHE, f"{name}_{VINTAGE}")
     if not os.path.exists(path):
         if VINTAGE != dt.date.today().isoformat():
@@ -31,7 +31,7 @@ def fetch(url, name):
     return path
 
 
-# ------------------------------------------------------------------ panel and frozen model
+# panel and frozen model
 df = core.load_raw()
 X = ["D"] + core.CONTROLS
 d = core.load()
@@ -42,15 +42,13 @@ xbar = {c: means.loc[c, X].to_dict() for c in means.index}
 ybar = {c: float(means.loc[c, "delta_E"]) for c in means.index}
 p25 = df[df.year == 2025].set_index("country")
 
-# ------------------------------------------------------------------ WEO snapshot
+# WEO snapshot
 WEO = {v: {k: json.load(open(os.path.join(CACHE, f"weo_{v}_{k}.json")))["values"][k] for k in WEO_INDS}
        for v in ("oct2026", "apr2026")}
 
 
+# October 2026 series, April 2026 before October's start
 def weo_series(ind, iso):
-    """October 2026 series, 1999-2026. Where the October release drops the start of a series that the
-    April 2026 vintage publishes (Korea's debt and primary balance before 2012), the early years come
-    from April, provided the two vintages agree at the join."""
     s = {int(y): float(v) for y, v in WEO["oct2026"][ind][iso].items()}
     a = {int(y): float(v) for y, v in WEO["apr2026"][ind].get(iso, {}).items()}
     first = min(s)
@@ -60,11 +58,11 @@ def weo_series(ind, iso):
     return pd.Series({**early, **s}).reindex(range(1999, 2027))
 
 
+# 2026 WEO-derived columns
 def weo_2026(c):
-    """The panel's WEO-derived columns for 2026 (values rounded to six decimals, as in the panel)."""
     debt, grow, ca, pb = (weo_series(ind, ISO[c]) for ind in WEO_INDS)
     step = debt.loc[2025] - debt.loc[2024]
-    streak = 0                                    # consecutive falls in the primary balance through 2025
+    streak = 0                                    # primary-balance streak
     for x in pb.diff().loc[:2025]:
         streak = 0 if pd.isna(x) else (streak + 1 if x < 0 else 0)
     r6 = lambda v: round(float(v), 6)
@@ -73,7 +71,7 @@ def weo_2026(c):
                 prim_bal_streak_lag=float(streak))
 
 
-# ------------------------------------------------------------------ downloads
+# downloads
 ecb = pd.read_csv(fetch("https://data-api.ecb.europa.eu/service/data/EXR/D." +
                         "+".join(sorted(set(CUR.values()) - {"EUR"} | {"USD"})) +
                         ".EUR.SP00.A?startPeriod=2024-12-01&format=csvdata", "ecb_exr.csv"))
@@ -105,8 +103,8 @@ bis = pd.read_csv(fetch("https://stats.bis.org/api/v1/data/WS_CBPOL/M." + "+".jo
                         "/all?startPeriod=2025-12&format=csv", "bis_cbpol.csv"))
 bis = bis[["REF_AREA", "TIME_PERIOD", "OBS_VALUE"]].dropna()
 bis = bis[bis.TIME_PERIOD <= CUTOFF[:7]]
+# policy rate in a month, or the latest before the cutoff
 def pol(area, month=None):
-    """Policy rate in a given month, or in the latest month before the cutoff."""
     b = bis[bis.REF_AREA == area].sort_values("TIME_PERIOD")
     return float(b[b.TIME_PERIOD == month].OBS_VALUE.iloc[0]) if month else float(b.OBS_VALUE.iloc[-1])
 
@@ -114,7 +112,7 @@ pcpi = json.load(open(fetch("https://www.imf.org/external/datamapper/api/v1/PCPI
 def weo_infl(c, year):
     return float(pcpi[ISO[c]][str(year)])
 
-# ------------------------------------------------------------------ 2026 regressors
+# 2026 regressors
 rows = {}
 us_now, us_dec = pol("US"), pol("US", "2025-12")
 for c in CUR:
@@ -128,15 +126,15 @@ for c in CUR:
              wui=float(p25.loc[c, "wui"]) + (wui(c, 2026) - wui(c, 2025)),
              prim_bal_lag=w["prim_bal_lag"], delta_debt_pos_lag=w["delta_debt_pos_lag"],
              delta_debt_neg_lag=w["delta_debt_neg_lag"], prim_bal_streak_lag=w["prim_bal_streak_lag"])
-    assert abs(r["D"] * 100 - float(p25.loc[c, "debt_gdp"])) < 1e-6   # the snapshot is the panel's own vintage
+    assert abs(r["D"] * 100 - float(p25.loc[c, "debt_gdp"])) < 1e-6   # the panel's vintage
     rows[c] = r
 
-# ------------------------------------------------------------------ forecasts and evaluation
+# forecasts and evaluation
 res = {}
 for c, r in rows.items():
     x = np.array([r[k] for k in X])
     full = alpha[c] + x @ beta
-    contrib = {k: float(b * (r[k] - xbar[c][k])) for k, b in zip(X, beta)}   # vs own 2001-2025 average
+    contrib = {k: float(b * (r[k] - xbar[c][k])) for k, b in zip(X, beta)}   # against own 2001-2025 mean
     res[c] = dict(predicted_full_year=float(full), predicted_to_date=float(full * elapsed),
                   realized_to_date=float(realized[c]), contributions_full_year=contrib,
                   regressors_2026={k: float(v) for k, v in r.items()},

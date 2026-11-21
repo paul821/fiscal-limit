@@ -45,11 +45,11 @@ share = (ss / ss.sum()).sort_values(ascending=False)
 yearly_pi = raw.groupby("year").pi.first()
 stress_years = [int(y) for y in yearly_pi[yearly_pi > core.STRESS_CUT].index]
 p = raw.sort_values(["country", "year"]).copy()
-p["ddebt"] = p.debt_gdp - p.debt_gdp_lag   # the lagged level covers 2001, the panel's first year
+p["ddebt"] = p.debt_gdp - p.debt_gdp_lag   # lag covers 2001
 out["within"] = dict(
     share_by_economy={k: float(v) for k, v in share.items()},
     stress_years=stress_years, n_stress_years_in_sample=int(d[d.HS > 0].year.nunique()),
-    debt_step_stressed=float(p[p.year.isin(stress_years)].ddebt.mean()),       # full panel, contemporaneous debt
+    debt_step_stressed=float(p[p.year.isin(stress_years)].ddebt.mean()),       # full panel, current debt
     debt_step_calm=float(p[~p.year.isin(stress_years) & p.ddebt.notna()].ddebt.mean()),
     mean_lagged_debt_stressed=float(d[d.HS > 0].debt_gdp_lag.mean()),        # estimation sample
     mean_lagged_debt_calm=float(d[d.HS == 0].debt_gdp_lag.mean()))
