@@ -1,6 +1,6 @@
 import os
 
-import silo1_core as core
+import core as core
 
 REPS = int(os.environ.get("SILO1_REPS", 500))     # panels per row
 B_INNER, MULTIPLES = 999, (0.0, 0.5, 1.0, 1.5, 2.0)

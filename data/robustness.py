@@ -3,7 +3,7 @@ import os
 import numpy as np
 import pandas as pd
 
-import silo1_core as core
+import core as core
 
 C = core.CONTROLS
 d = core.load()

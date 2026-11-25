@@ -1,6 +1,6 @@
 import json, os, subprocess, sys, datetime as dt
 import numpy as np, pandas as pd
-import silo1_core as core
+import core as core
 
 CACHE = os.path.join(core.HERE, "raw", "oos2026")
 VINTAGE = os.environ.get("SILO1_VINTAGE", "2026-11-08")   # download date

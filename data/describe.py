@@ -3,7 +3,7 @@ import os
 import numpy as np
 import pandas as pd
 
-import silo1_core as core
+import core as core
 
 d = core.load()
 raw = core.load_raw()
@@ -85,8 +85,8 @@ out["facts"] = dict(
               fall_pct=float(100 * (u["2022"].min() / u["2021"].max() - 1))),
     krona=dict(record_usd=float(se.max()), record_date=str(se.idxmax().date())),
     krone=dict(record_usd=float(no.max()), record_date=str(no.idxmax().date())),
-    n_debt_higher_2020_25=int((raw[raw.year >= 2020].groupby("country").debt_gdp.mean()
-                               > raw[raw.year <= 2019].groupby("country").debt_gdp.mean()).sum()),
+    n_debt_higher_2019_25=int((raw[raw.year >= 2019].groupby("country").debt_gdp.mean()
+                               > raw[raw.year <= 2018].groupby("country").debt_gdp.mean()).sum()),
     mean_debt_2007=float(raw[raw.year == 2007].debt_gdp.mean()), mean_debt_2025=float(raw[raw.year == 2025].debt_gdp.mean()),
     korea=dict(debt_2018=float(ko.loc[2018, "debt_gdp"]), debt_2025=float(ko.loc[2025, "debt_gdp"]),
                implied_extra_depreciation_pp=float(slope * (ko.loc[2025, "debt_gdp"] - ko.loc[2018, "debt_gdp"]) / 100)),

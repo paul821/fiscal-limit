@@ -4,7 +4,7 @@ import sys
 import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-STAGES = ["estimates", "robustness", "validation", "describe", "oos2026", "paper_figs"]
+STAGES = ["estimates", "robustness", "validation", "describe", "oos2026", "paper_figs", "paper_numbers"]
 
 args = sys.argv[1:]
 env = dict(os.environ)
@@ -17,7 +17,7 @@ for name in STAGES[start:]:
     t = time.time()
     log = os.path.join(log_dir, f"{name}.log")
     with open(log, "w") as fh:
-        r = subprocess.run([sys.executable, os.path.join(HERE, f"silo1_{name}.py")], cwd=HERE, env=env,
+        r = subprocess.run([sys.executable, os.path.join(HERE, f"{name}.py")], cwd=HERE, env=env,
                            stdout=fh, stderr=subprocess.STDOUT)
     print(f"{name:14s} {'ok' if r.returncode == 0 else 'FAILED'}  {time.time() - t:6.0f}s  (log: rerun_logs/{name}.log)", flush=True)
     if r.returncode != 0:
